@@ -56,6 +56,7 @@ A template repo for building your own skill library. Skills are markdown files t
 | [docs/README.md](./docs/README.md) | Quick start and overview |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | How it all works |
 | [docs/FAQs.md](./docs/FAQs.md) | Common questions |
+| [docs/SECRETS.md](./docs/SECRETS.md) | LLM tokens and GitHub secrets |
 
 ## License
 
