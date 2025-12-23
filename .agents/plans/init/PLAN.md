@@ -170,9 +170,9 @@ Canonical sources live in one place. Tool-specific adapters are generated:
 │   ├── rules/
 │   │   └── AGENTS.md                    # Skillstash instructions (shared by both tools)
 │   ├── skills/
-│   │   ├── skills-authoring/
-│   │   ├── skills-research/
-│   │   └── skills-validation/
+│   │   ├── skillstash-author/
+│   │   ├── skillstash-research/
+│   │   └── skillstash-review/
 │   └── .markdownlint-cli2.jsonc
 │   └── templates/
 │       └── PR_BODY.md
