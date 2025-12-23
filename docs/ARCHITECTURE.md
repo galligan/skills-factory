@@ -21,6 +21,7 @@ skillstash/
 │   ├── rules/AGENTS.md        # Agent instructions
 │   ├── skills/                # Internal agent skills
 │   └── templates/             # PR/issue templates
+├── commands/                  # Claude Code plugin commands
 ├── docs/                      # This documentation
 ├── packages/                  # Published tools (npm)
 │   └── create-skillstash/      # bunx create-skillstash

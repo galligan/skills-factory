@@ -6,13 +6,19 @@ Skillstash can run agent workflows in GitHub Actions when LLM credentials are av
 
 ### OAuth Token (Recommended)
 
-From inside Claude Code, run:
+The simplest supported path is to mint a single token and store it in GitHub secrets:
+
+```bash
+claude setup-token
+```
+
+Save the resulting token as `CLAUDE_CODE_OAUTH_TOKEN` in your repo secrets.
+
+If you prefer the in-product flow, you can run this inside Claude Code:
 
 ```text
 /install-github-app
 ```
-
-This guided flow installs the Claude GitHub App and provides an OAuth token. Save that token as `CLAUDE_CODE_OAUTH_TOKEN` in your repo secrets.
 
 ### Anthropic API Key (Fallback)
 
