@@ -1,9 +1,9 @@
 ---
-name: skills-validation
-description: Validate skills and summarize issues before merge
+name: skillstash-review
+description: Review skillstash PRs and summarize validation issues
 ---
 
-# Skills Validation
+# Skillstash Review
 
 Use this skill to review a skill PR and report validation issues.
 

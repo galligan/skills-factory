@@ -1,9 +1,9 @@
 ---
-name: skills-authoring
-description: Author SKILL.md files from research or issue specs
+name: skillstash-author
+description: Author skillstash SKILL.md files from research or issue specs
 ---
 
-# Skills Authoring
+# Skillstash Author
 
 Use this skill to draft or update `SKILL.md` files for new skills.
 

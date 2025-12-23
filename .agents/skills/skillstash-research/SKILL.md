@@ -1,9 +1,9 @@
 ---
-name: skills-research
-description: Gather sources and summarize research for new skills
+name: skillstash-research
+description: Gather sources and summarize research for skillstash skills
 ---
 
-# Skills Research
+# Skillstash Research
 
 Use this skill to collect sources and synthesize notes before authoring a skill.
 

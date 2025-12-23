@@ -246,6 +246,31 @@ export function resolveWorkflow(config: StashConfig): Array<{ role: WorkflowRole
   }));
 }
 
+const SKILLSTASH_ROLE_SKILL = {
+  research: 'skillstash-research',
+  author: 'skillstash-author',
+  review: 'skillstash-review',
+} as const;
+
+export function skillstashSkillPath(role: WorkflowRole): string {
+  const skillName = SKILLSTASH_ROLE_SKILL[role];
+  return join(process.cwd(), '.agents', 'skills', skillName, 'SKILL.md');
+}
+
+export async function loadSkillstashSkill(role: WorkflowRole): Promise<string> {
+  const path = skillstashSkillPath(role);
+  return Bun.file(path).text();
+}
+
+export async function composePrompt(
+  role: WorkflowRole,
+  contextBlocks: string[] = [],
+): Promise<string> {
+  const skill = await loadSkillstashSkill(role);
+  const parts = [skill.trim(), ...contextBlocks.map(block => block.trim()).filter(Boolean)];
+  return parts.join('\n\n');
+}
+
 export function extractField(body: string, label: string): string | null {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`###\\s+${escaped}\\s*\\n+([\\s\\S]*?)(?=\\n###\\s|$)`, 'i');

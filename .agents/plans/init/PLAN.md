@@ -412,7 +412,7 @@ When the only changed file is `.skillstash/config.yml` and the actor is a repo o
 
 - Everything in `.research/` (if exists)
 - Issue description and comments
-- The `.agents/skills/skills-authoring/` meta-skill
+- The `.agents/skills/skillstash-author/` meta-skill
 
 **Outputs:**
 
@@ -623,8 +623,8 @@ Skills follow the Agent Skills spec (`agentskills.io`), working across Claude Co
 
 ### Phase 4: Agent Integration
 
-- [ ] `.agents/skills/skills-research/SKILL.md`
-- [ ] `.agents/skills/skills-authoring/SKILL.md`
+- [ ] `.agents/skills/skillstash-research/SKILL.md`
+- [ ] `.agents/skills/skillstash-author/SKILL.md`
 - [ ] MCP integration (firecrawl, context7, octocode)
 - [ ] Research agent workflow
 - [ ] Authoring agent workflow
@@ -633,7 +633,7 @@ Skills follow the Agent Skills spec (`agentskills.io`), working across Claude Co
 
 ### Phase 5: Review & Merge
 
-- [ ] `.agents/skills/skills-validation/SKILL.md`
+- [ ] `.agents/skills/skillstash-review/SKILL.md`
 - [ ] Review agent with structured output
 - [ ] Auto-merge workflow
 - [ ] Rate limiting

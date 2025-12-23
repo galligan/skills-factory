@@ -22,6 +22,14 @@ skillstash/
 └── scripts/                   # Skillstash automation
 ```
 
+## Internal Agent Skills
+
+Skillstash uses role-specific skills in `.agents/skills/` so agents can be hot-swapped without changing prompts:
+
+- `skillstash-research`
+- `skillstash-author`
+- `skillstash-review`
+
 ## SKILL.md Format
 
 Every skill requires a `SKILL.md` with YAML frontmatter:
