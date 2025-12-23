@@ -14,6 +14,12 @@ Create a GitHub repo automatically (requires `gh`):
 bunx create-skillstash my-skillstash --create-repo --public
 ```
 
+Create under an org or explicit owner:
+
+```bash
+bunx create-skillstash my-skillstash --create-repo acme/skillstash
+```
+
 ## Options
 
 ```text
@@ -22,9 +28,10 @@ bunx create-skillstash my-skillstash --create-repo --public
 --owner-name <name>           Marketplace owner name (default: git user.name)
 --owner-email <email>         Marketplace owner email (default: git user.email)
 --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)
---create-repo                 Create GitHub repo via gh and set origin
+--create-repo [owner/repo]    Create GitHub repo via gh and set origin
 --public                      Create GitHub repo as public (default)
 --private                     Create GitHub repo as private
+--default-agent <name>        Set default agent (claude | codex)
 --upstream                    Add upstream remote (default: true)
 --no-upstream                 Remove template remote after clone
 ```

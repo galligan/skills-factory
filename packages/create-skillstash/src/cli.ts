@@ -12,7 +12,9 @@ interface Options {
   origin?: string;
   upstream: boolean;
   createRepo: boolean;
+  createRepoTarget?: string;
   visibility: 'public' | 'private';
+  defaultAgent: 'claude' | 'codex';
 }
 
 const args = process.argv.slice(2);
@@ -46,13 +48,15 @@ const marketplaceName = options.marketplace ?? toKebab(repoName);
 const ownerName = options.ownerName ?? readGitConfig('user.name') ?? 'Skillstash';
 const ownerEmail = options.ownerEmail ?? readGitConfig('user.email') ?? undefined;
 let originUrl = options.origin;
+const defaultAgent = options.defaultAgent;
 
 if (options.createRepo) {
-  originUrl = await createRepoWithGh(repoName, options.visibility);
+  originUrl = await createRepoWithGh(repoName, options.visibility, options.createRepoTarget);
 }
 
 await updatePluginManifest(targetPath, ownerName, ownerEmail);
 await updateMarketplace(targetPath, marketplaceName, ownerName, ownerEmail);
+await updateDefaultAgent(targetPath, defaultAgent);
 
 await updateGitRemotes(targetPath, templateUrl, originUrl, options.upstream);
 
@@ -65,8 +69,16 @@ if (originUrl) {
   console.log('  git push -u origin main');
 }
 
+if (defaultAgent === 'claude') {
+  console.log('\nNext: configure Claude credentials for automation.');
+  console.log('  See docs/SECRETS.md → Claude Code Authentication');
+} else {
+  console.log('\nNext: configure Codex credentials for automation.');
+  console.log('  See docs/SECRETS.md → Codex Authentication');
+}
+
 function printHelp() {
-  console.log(`\ncreate-skillstash <dir> [options]\n\nOptions:\n  --template <owner/repo|url>   Template repo (default: galligan/skillstash)\n  --marketplace <name>          Marketplace name (default: <dir> in kebab-case)\n  --owner-name <name>           Marketplace owner name (default: git user.name)\n  --owner-email <email>         Marketplace owner email (default: git user.email)\n  --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)\n  --create-repo                 Create GitHub repo via gh and set origin\n  --public                      Create GitHub repo as public (default)\n  --private                     Create GitHub repo as private\n  --upstream                    Keep template as upstream (default: true)\n  --no-upstream                 Remove template remote after clone\n  -h, --help                    Show this help\n`);
+  console.log(`\ncreate-skillstash <dir> [options]\n\nOptions:\n  --template <owner/repo|url>   Template repo (default: galligan/skillstash)\n  --marketplace <name>          Marketplace name (default: <dir> in kebab-case)\n  --owner-name <name>           Marketplace owner name (default: git user.name)\n  --owner-email <email>         Marketplace owner email (default: git user.email)\n  --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)\n  --create-repo [owner/repo]    Create GitHub repo via gh and set origin\n  --public                      Create GitHub repo as public (default)\n  --private                     Create GitHub repo as private\n  --default-agent <name>        Set default agent (claude | codex)\n  --upstream                    Keep template as upstream (default: true)\n  --no-upstream                 Remove template remote after clone\n  -h, --help                    Show this help\n`);
 }
 
 function parseArgs(argv: string[]): { target: string | null; options: Options } {
@@ -75,12 +87,32 @@ function parseArgs(argv: string[]): { target: string | null; options: Options } 
     upstream: true,
     createRepo: false,
     visibility: 'public',
+    defaultAgent: 'claude',
   };
   let target: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg) continue;
+
+    if (arg.startsWith('--create-repo=')) {
+      options.createRepo = true;
+      const value = arg.split('=')[1];
+      if (value) {
+        options.createRepoTarget = value;
+      }
+      continue;
+    }
+
+    if (arg.startsWith('--default-agent=')) {
+      const value = arg.split('=')[1];
+      if (value !== 'claude' && value !== 'codex') {
+        console.error('Error: --default-agent must be "claude" or "codex".');
+        process.exit(1);
+      }
+      options.defaultAgent = value as 'claude' | 'codex';
+      continue;
+    }
 
     if (!arg.startsWith('-') && !target) {
       target = arg;
@@ -106,6 +138,9 @@ function parseArgs(argv: string[]): { target: string | null; options: Options } 
         break;
       case '--create-repo':
         options.createRepo = true;
+        if (argv[i + 1] && !argv[i + 1].startsWith('-')) {
+          options.createRepoTarget = argv[++i];
+        }
         break;
       case '--public':
         options.visibility = 'public';
@@ -113,6 +148,15 @@ function parseArgs(argv: string[]): { target: string | null; options: Options } 
       case '--private':
         options.visibility = 'private';
         break;
+      case '--default-agent': {
+        const value = argv[++i];
+        if (value !== 'claude' && value !== 'codex') {
+          console.error('Error: --default-agent must be "claude" or "codex".');
+          process.exit(1);
+        }
+        options.defaultAgent = value;
+        break;
+      }
       case '--upstream':
         options.upstream = true;
         break;
@@ -206,7 +250,11 @@ function toKebab(value: string): string {
     .toLowerCase();
 }
 
-async function createRepoWithGh(repoName: string, visibility: 'public' | 'private'): Promise<string> {
+async function createRepoWithGh(
+  repoName: string,
+  visibility: 'public' | 'private',
+  explicitTarget?: string,
+): Promise<string> {
   if (!hasGh()) {
     console.error('Error: gh CLI is required for --create-repo. Install from https://cli.github.com/.');
     process.exit(1);
@@ -216,16 +264,33 @@ async function createRepoWithGh(repoName: string, visibility: 'public' | 'privat
     process.exit(1);
   }
 
-  const owner = ghUserLogin();
-  if (!owner) {
-    console.error('Error: unable to determine GitHub user via `gh api user`.');
-    process.exit(1);
+  let owner: string | null = null;
+  let finalRepoName = repoName;
+
+  if (explicitTarget) {
+    if (!explicitTarget.includes('/')) {
+      console.error('Error: --create-repo expects "owner/repo" when a value is provided.');
+      process.exit(1);
+    }
+    const [explicitOwner, explicitRepo] = explicitTarget.split('/');
+    if (!explicitOwner || !explicitRepo) {
+      console.error('Error: --create-repo expects "owner/repo" when a value is provided.');
+      process.exit(1);
+    }
+    owner = explicitOwner;
+    finalRepoName = explicitRepo;
+  } else {
+    owner = ghUserLogin();
+    if (!owner) {
+      console.error('Error: unable to determine GitHub user via `gh api user`.');
+      process.exit(1);
+    }
   }
 
   const visibilityFlag = visibility === 'private' ? '--private' : '--public';
-  run('gh', ['repo', 'create', `${owner}/${repoName}`, visibilityFlag, '--confirm']);
+  run('gh', ['repo', 'create', `${owner}/${finalRepoName}`, visibilityFlag, '--confirm']);
 
-  return `https://github.com/${owner}/${repoName}.git`;
+  return `https://github.com/${owner}/${finalRepoName}.git`;
 }
 
 function hasGh(): boolean {
@@ -243,6 +308,43 @@ function ghUserLogin(): string | null {
   if (result.status !== 0) return null;
   const login = result.stdout?.trim();
   return login && login.length > 0 ? login : null;
+}
+
+async function updateDefaultAgent(root: string, agent: 'claude' | 'codex') {
+  const path = join(root, '.skillstash', 'config.yml');
+  if (!existsSync(path)) return;
+
+  const raw = await readFile(path, 'utf-8');
+  const lines = raw.split('\n');
+  let inAgents = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (/^\s*agents:\s*$/.test(line)) {
+      inAgents = true;
+      continue;
+    }
+
+    if (inAgents) {
+      if (/^\s*$/.test(line) || /^\s*#/.test(line)) {
+        continue;
+      }
+      if (!/^\s+/.test(line)) {
+        inAgents = false;
+        continue;
+      }
+      if (/^\s*default:\s*/.test(line)) {
+        const commentIndex = line.indexOf('#');
+        const comment = commentIndex >= 0 ? line.slice(commentIndex).trim() : '';
+        const prefix = commentIndex >= 0 ? line.slice(0, commentIndex) : line;
+        const updatedPrefix = prefix.replace(/(default:\s*)([^#\s]+)/, `$1${agent}`);
+        lines[i] = updatedPrefix.trimEnd() + (comment ? ` ${comment}` : '');
+        break;
+      }
+    }
+  }
+
+  await writeFile(path, lines.join('\n'), 'utf-8');
 }
 
 async function updatePluginManifest(root: string, ownerName: string, ownerEmail?: string) {
