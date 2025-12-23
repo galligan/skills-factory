@@ -45,9 +45,9 @@ bun run lint:md     # Check markdown formatting
 
 | Document | Purpose |
 |----------|---------|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, directory structure, configuration |
-| [FAQs.md](./FAQs.md) | Common questions, labels, troubleshooting |
-| [SECRETS.md](./SECRETS.md) | LLM tokens and GitHub Actions secrets |
+| [architecture.md](./architecture.md) | System design, directory structure, configuration |
+| [faqs.md](./faqs.md) | Common questions, labels, troubleshooting |
+| [secrets.md](./secrets.md) | LLM tokens and GitHub Actions secrets |
 
 ## Key Concepts
 

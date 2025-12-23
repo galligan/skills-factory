@@ -20,6 +20,12 @@ If you prefer the in-product flow, you can run this inside Claude Code:
 /install-github-app
 ```
 
+Guided help is available via the plugin command:
+
+```text
+/skillstash:setup-claude-token
+```
+
 ### Anthropic API Key (Fallback)
 
 If you are not using OAuth, set `ANTHROPIC_API_KEY` from the Anthropic Console.

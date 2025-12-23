@@ -73,10 +73,10 @@ if (originUrl) {
 
 if (defaultAgent === 'claude') {
   console.log('\nNext: configure Claude credentials for automation.');
-  console.log('  See docs/SECRETS.md → Claude Code Authentication');
+  console.log('  See docs/secrets.md → Claude Code Authentication');
 } else {
   console.log('\nNext: configure Codex credentials for automation.');
-  console.log('  See docs/SECRETS.md → Codex Authentication');
+  console.log('  See docs/secrets.md → Codex Authentication');
 }
 
 function printHelp() {
