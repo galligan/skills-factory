@@ -8,6 +8,12 @@ bunx create-skillstash my-skillstash
 
 By default the template remote is renamed to `upstream` so you can’t accidentally push to it.
 
+Create a GitHub repo automatically (requires `gh`):
+
+```bash
+bunx create-skillstash my-skillstash --create-repo --public
+```
+
 ## Options
 
 ```text
@@ -16,6 +22,9 @@ By default the template remote is renamed to `upstream` so you can’t accidenta
 --owner-name <name>           Marketplace owner name (default: git user.name)
 --owner-email <email>         Marketplace owner email (default: git user.email)
 --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)
+--create-repo                 Create GitHub repo via gh and set origin
+--public                      Create GitHub repo as public (default)
+--private                     Create GitHub repo as private
 --upstream                    Add upstream remote (default: true)
 --no-upstream                 Remove template remote after clone
 ```

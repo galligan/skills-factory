@@ -11,6 +11,8 @@ interface Options {
   ownerEmail?: string;
   origin?: string;
   upstream: boolean;
+  createRepo: boolean;
+  visibility: 'public' | 'private';
 }
 
 const args = process.argv.slice(2);
@@ -43,27 +45,36 @@ const repoName = basename(targetPath);
 const marketplaceName = options.marketplace ?? toKebab(repoName);
 const ownerName = options.ownerName ?? readGitConfig('user.name') ?? 'Skillstash';
 const ownerEmail = options.ownerEmail ?? readGitConfig('user.email') ?? undefined;
+let originUrl = options.origin;
+
+if (options.createRepo) {
+  originUrl = await createRepoWithGh(repoName, options.visibility);
+}
 
 await updatePluginManifest(targetPath, ownerName, ownerEmail);
 await updateMarketplace(targetPath, marketplaceName, ownerName, ownerEmail);
 
-await updateGitRemotes(targetPath, templateUrl, options.origin, options.upstream);
+await updateGitRemotes(targetPath, templateUrl, originUrl, options.upstream);
 
 console.log('\nSkillstash ready:');
 console.log(`  cd ${target}`);
-if (!options.origin) {
+if (originUrl) {
+  console.log('  git push -u origin main');
+} else {
   console.log('  git remote add origin https://github.com/<owner>/<repo>.git');
   console.log('  git push -u origin main');
 }
 
 function printHelp() {
-  console.log(`\ncreate-skillstash <dir> [options]\n\nOptions:\n  --template <owner/repo|url>   Template repo (default: galligan/skillstash)\n  --marketplace <name>          Marketplace name (default: <dir> in kebab-case)\n  --owner-name <name>           Marketplace owner name (default: git user.name)\n  --owner-email <email>         Marketplace owner email (default: git user.email)\n  --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)\n  --upstream                    Keep template as upstream (default: true)\n  --no-upstream                 Remove template remote after clone\n  -h, --help                    Show this help\n`);
+  console.log(`\ncreate-skillstash <dir> [options]\n\nOptions:\n  --template <owner/repo|url>   Template repo (default: galligan/skillstash)\n  --marketplace <name>          Marketplace name (default: <dir> in kebab-case)\n  --owner-name <name>           Marketplace owner name (default: git user.name)\n  --owner-email <email>         Marketplace owner email (default: git user.email)\n  --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)\n  --create-repo                 Create GitHub repo via gh and set origin\n  --public                      Create GitHub repo as public (default)\n  --private                     Create GitHub repo as private\n  --upstream                    Keep template as upstream (default: true)\n  --no-upstream                 Remove template remote after clone\n  -h, --help                    Show this help\n`);
 }
 
 function parseArgs(argv: string[]): { target: string | null; options: Options } {
   const options: Options = {
     template: 'galligan/skillstash',
     upstream: true,
+    createRepo: false,
+    visibility: 'public',
   };
   let target: string | null = null;
 
@@ -93,6 +104,15 @@ function parseArgs(argv: string[]): { target: string | null; options: Options } 
       case '--origin':
         options.origin = argv[++i];
         break;
+      case '--create-repo':
+        options.createRepo = true;
+        break;
+      case '--public':
+        options.visibility = 'public';
+        break;
+      case '--private':
+        options.visibility = 'private';
+        break;
       case '--upstream':
         options.upstream = true;
         break;
@@ -108,6 +128,11 @@ function parseArgs(argv: string[]): { target: string | null; options: Options } 
         printHelp();
         process.exit(1);
     }
+  }
+
+  if (options.createRepo && options.origin) {
+    console.error('Error: --create-repo cannot be used with --origin.');
+    process.exit(1);
   }
 
   return { target, options };
@@ -179,6 +204,45 @@ function toKebab(value: string): string {
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .toLowerCase();
+}
+
+async function createRepoWithGh(repoName: string, visibility: 'public' | 'private'): Promise<string> {
+  if (!hasGh()) {
+    console.error('Error: gh CLI is required for --create-repo. Install from https://cli.github.com/.');
+    process.exit(1);
+  }
+  if (!ghAuthed()) {
+    console.error('Error: gh is not authenticated. Run `gh auth login` and retry.');
+    process.exit(1);
+  }
+
+  const owner = ghUserLogin();
+  if (!owner) {
+    console.error('Error: unable to determine GitHub user via `gh api user`.');
+    process.exit(1);
+  }
+
+  const visibilityFlag = visibility === 'private' ? '--private' : '--public';
+  run('gh', ['repo', 'create', `${owner}/${repoName}`, visibilityFlag, '--confirm']);
+
+  return `https://github.com/${owner}/${repoName}.git`;
+}
+
+function hasGh(): boolean {
+  const result = spawnSync('gh', ['--version'], { stdio: 'ignore' });
+  return result.status === 0;
+}
+
+function ghAuthed(): boolean {
+  const result = spawnSync('gh', ['auth', 'status', '-h', 'github.com'], { stdio: 'ignore' });
+  return result.status === 0;
+}
+
+function ghUserLogin(): string | null {
+  const result = spawnSync('gh', ['api', 'user', '--jq', '.login'], { encoding: 'utf-8' });
+  if (result.status !== 0) return null;
+  const login = result.stdout?.trim();
+  return login && login.length > 0 ? login : null;
 }
 
 async function updatePluginManifest(root: string, ownerName: string, ownerEmail?: string) {
