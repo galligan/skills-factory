@@ -52,8 +52,14 @@ Skillstash ships with a Claude Code plugin manifest at `.claude-plugin/plugin.js
 Install from GitHub (inside Claude Code):
 
 ```text
-/plugin marketplace add <owner>/skillstash
-/plugin install skillstash@<owner>-skillstash
+/plugin marketplace add galligan/skillstash
+/plugin install skillstash@skillstash
+```
+
+If you scaffolded your own repo with `create-skillstash`, use the marketplace name written in `.claude-plugin/marketplace.json`:
+
+```text
+/plugin install skillstash@<your-marketplace-name>
 ```
 
 Test locally:

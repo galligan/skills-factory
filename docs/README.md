@@ -4,6 +4,12 @@ This is a skillstash instance for creating, managing, and distributing AI agent 
 
 ## Quick Start
 
+**Scaffold a new repo (recommended):**
+
+```bash
+bunx create-skillstash my-skillstash
+```
+
 **Create a skill locally (fastest):**
 
 ```bash
@@ -48,4 +54,4 @@ bun run lint:md     # Check markdown formatting
 |------|---------|
 | `.agents/rules/AGENTS.md` | Full agent instructions and validation rules |
 | `.skillstash/config.yml` | Skillstash configuration |
-| `skills/skillstash-management/SKILL.md` | Skill for working with this repo |
+| `.agents/skills/skillstash-management/SKILL.md` | Internal skill for working with this repo |

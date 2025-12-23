@@ -45,7 +45,7 @@ A template repo for building your own skill library. Skills are markdown files t
 
 ## Get Started
 
-1. **Use this template** → Create your own skillstash
+1. **Scaffold a new repo** → `bunx create-skillstash my-skillstash`
 2. **Create a skill** → `skills/my-skill/SKILL.md`
 3. **Use it** → Your agent finds it automatically
 
