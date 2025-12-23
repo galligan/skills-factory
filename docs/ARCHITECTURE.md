@@ -14,6 +14,8 @@ skillstash/
 │       └── assets/            # Optional - templates, configs
 ├── .skillstash/
 │   └── config.yml             # Skillstash configuration
+├── .claude-plugin/
+│   └── plugin.json             # Claude plugin manifest
 ├── .agents/
 │   ├── rules/AGENTS.md        # Agent instructions
 │   ├── skills/                # Internal agent skills

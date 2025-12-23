@@ -45,6 +45,23 @@ Ask your LLM to generate a GitHub issue URL with:
 - `sources` - reference URLs (optional)
 - `research-depth` - Minimal or Deep
 
+## Claude Plugin
+
+Skillstash ships with a Claude Code plugin manifest at `.claude-plugin/plugin.json`.
+
+Install from GitHub (inside Claude Code):
+
+```text
+/plugin marketplace add <owner>/skillstash
+/plugin install skillstash@<owner>-skillstash
+```
+
+Test locally:
+
+```bash
+claude --plugin-dir .
+```
+
 ## Troubleshooting
 
 ### Skill Not Discovered
