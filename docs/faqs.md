@@ -6,6 +6,14 @@ Common questions about skillstash.
 
 Labels override defaults in `.skillstash/config.yml` per-issue or per-PR.
 
+To set up the default label set in a new repo:
+
+```bash
+bun run labels:setup
+```
+
+If you scaffold with `create-skillstash --create-repo`, label setup runs automatically unless you pass `--skip-label-setup`.
+
 ### Skip Labels
 
 | Label | Effect |
