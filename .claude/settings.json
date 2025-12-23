@@ -1,3 +1,14 @@
 {
-  "projectInstructions": "See AGENTS.md"
+  "projectInstructions": "See AGENTS.md",
+  "extraKnownMarketplaces": {
+    "skillstash": {
+      "source": {
+        "source": "github",
+        "repo": "galligan/skillstash"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "skillstash@skillstash": true
+  }
 }

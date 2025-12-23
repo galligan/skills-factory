@@ -49,6 +49,7 @@ const ownerName = options.ownerName ?? readGitConfig('user.name') ?? 'Skillstash
 const ownerEmail = options.ownerEmail ?? readGitConfig('user.email') ?? undefined;
 let originUrl = options.origin;
 const defaultAgent = options.defaultAgent;
+const explicitRepoSlug = options.createRepoTarget;
 
 if (options.createRepo) {
   originUrl = await createRepoWithGh(repoName, options.visibility, options.createRepoTarget);
@@ -57,6 +58,7 @@ if (options.createRepo) {
 await updatePluginManifest(targetPath, ownerName, ownerEmail);
 await updateMarketplace(targetPath, marketplaceName, ownerName, ownerEmail);
 await updateDefaultAgent(targetPath, defaultAgent);
+await updateClaudeSettings(targetPath, resolveRepoSlug(explicitRepoSlug, originUrl));
 
 await updateGitRemotes(targetPath, templateUrl, originUrl, options.upstream);
 
@@ -208,6 +210,17 @@ function normalizeOriginUrl(origin: string): string {
   return origin.endsWith('.git') ? origin : origin;
 }
 
+function resolveRepoSlug(explicit: string | undefined, origin: string | undefined): string | undefined {
+  if (explicit && explicit.includes('/')) {
+    return explicit.replace(/\.git$/, '');
+  }
+  if (!origin) return undefined;
+  const trimmed = origin.replace(/\.git$/, '');
+  const httpsMatch = trimmed.match(/github\.com[/:]([^/]+\/[^/]+)$/);
+  if (httpsMatch?.[1]) return httpsMatch[1];
+  return undefined;
+}
+
 function run(cmd: string, args: string[]) {
   const result = spawnSync(cmd, args, { stdio: 'inherit' });
   if (result.status !== 0) {
@@ -345,6 +358,36 @@ async function updateDefaultAgent(root: string, agent: 'claude' | 'codex') {
   }
 
   await writeFile(path, lines.join('\n'), 'utf-8');
+}
+
+async function updateClaudeSettings(root: string, repoSlug: string | undefined) {
+  const path = join(root, '.claude', 'settings.json');
+  if (!existsSync(path)) return;
+
+  try {
+    const raw = await readFile(path, 'utf-8');
+    const data = JSON.parse(raw) as Record<string, unknown>;
+
+    const marketplaces = (data.extraKnownMarketplaces as Record<string, unknown>) ?? {};
+    const skillstashMarketplace = (marketplaces.skillstash as Record<string, unknown>) ?? {};
+    const source = (skillstashMarketplace.source as Record<string, unknown>) ?? {};
+
+    if (repoSlug) {
+      source.source = 'github';
+      source.repo = repoSlug;
+      skillstashMarketplace.source = source;
+      marketplaces.skillstash = skillstashMarketplace;
+      data.extraKnownMarketplaces = marketplaces;
+    }
+
+    const enabledPlugins = (data.enabledPlugins as Record<string, unknown>) ?? {};
+    enabledPlugins['skillstash@skillstash'] = true;
+    data.enabledPlugins = enabledPlugins;
+
+    await writeFile(path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+  } catch {
+    // Skip if settings.json is not valid JSON.
+  }
 }
 
 async function updatePluginManifest(root: string, ownerName: string, ownerEmail?: string) {
