@@ -15,12 +15,15 @@ skillstash/
 ├── .skillstash/
 │   └── config.yml             # Skillstash configuration
 ├── .claude-plugin/
-│   └── plugin.json             # Claude plugin manifest
+│   ├── plugin.json             # Claude plugin manifest
+│   └── marketplace.json        # Claude marketplace (this plugin)
 ├── .agents/
 │   ├── rules/AGENTS.md        # Agent instructions
 │   ├── skills/                # Internal agent skills
 │   └── templates/             # PR/issue templates
 ├── docs/                      # This documentation
+├── packages/                  # Published tools (npm)
+│   └── create-skillstash/      # bunx create-skillstash
 └── scripts/                   # Skillstash automation
 ```
 
