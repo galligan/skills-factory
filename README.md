@@ -1,30 +1,6 @@
 # skillstash
 
-**Turn ideas into agent skills in seconds.**
-
-```bash
-mkdir -p skills/react-testing
-cat > skills/react-testing/SKILL.md << 'EOF'
----
-name: react-testing
-description: Best practices for testing React components
----
-
-# React Testing
-
-When to use: Testing React components with Jest and Testing Library.
-
-## Guidelines
-
-1. Test behavior, not implementation
-2. Use screen queries over container queries
-3. Prefer userEvent over fireEvent
-EOF
-```
-
-That's it. The skill is live. No deploy, no wait, no ceremony.
-
-Or file an issue and let skillstash do the work:
+**File an issue. Agents research, build, and ship skills.**
 
 ```text
 ┌─────────────┐     ┌─────────────────────────────────┐     ┌───────────┐
@@ -35,19 +11,21 @@ Or file an issue and let skillstash do the work:
 
 ## What is this?
 
-A template repo for building your own skill library. Skills are markdown files that teach AI agents how to do specific things—coding patterns, workflows, domain knowledge, whatever you need.
+A template repo for building your own skill library through GitHub issues. File a skill idea, and skillstash turns it into a vetted `SKILL.md` that’s immediately usable.
 
-**Local-first**: Skills work the moment you save them. Push to git when you're ready.
+**Issue-first**: GitHub issues drive research, authoring, review, and validation.
 
 **Validated**: Linting and structure checks catch mistakes before they spread.
 
 **Composable**: Build a library of skills your agents can discover and use.
 
+**Local-first (optional)**: You can still create `skills/<name>/SKILL.md` manually when you want.
+
 ## Get Started
 
-1. **Scaffold a new repo** → `bunx create-skillstash my-skillstash`
-2. **Create a skill** → `skills/my-skill/SKILL.md`
-3. **Use it** → Your agent finds it automatically
+1. **Scaffold a new repo** → `bunx create-skillstash my-skillstash --create-repo`
+2. **Set up secrets** → `docs/secrets.md`
+3. **File a skill issue** → Use the “Create skill” issue template
 
 ## Learn More
 
