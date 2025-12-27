@@ -7,7 +7,7 @@
     "create-skillstash": "src/cli.ts"
   },
   "files": [
-    "src/cli.ts",
+    "src",
     "README.md"
   ],
   "keywords": [
@@ -19,5 +19,13 @@
   "license": "MIT",
   "engines": {
     "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "commander": "^13.0.0",
+    "inquirer": "^12.3.2",
+    "ora": "^8.1.1"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7"
   }
 }

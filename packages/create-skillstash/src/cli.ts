@@ -1,8 +1,25 @@
 #!/usr/bin/env bun
-import { execSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import { Command } from 'commander';
+import inquirer from 'inquirer';
+import ora from 'ora';
+
+// ============================================================================
+// Types
+// ============================================================================
+
+interface SetupAnswers {
+  directory: string;
+  ownerName: string;
+  ownerEmail: string;
+  defaultAgent: 'claude' | 'codex';
+  createRepo: boolean;
+  repoVisibility?: 'public' | 'private';
+  setupLabels: boolean;
+}
 
 interface Options {
   template: string;
@@ -15,210 +32,325 @@ interface Options {
   createRepoTarget?: string;
   visibility: 'public' | 'private';
   defaultAgent: 'claude' | 'codex';
-  setupLabels: boolean | null;
+  setupLabels: boolean;
+  interactive: boolean;
 }
 
-const args = process.argv.slice(2);
+// ============================================================================
+// CLI Setup
+// ============================================================================
 
-if (args.length === 0 || args.includes('-h') || args.includes('--help')) {
-  printHelp();
-  process.exit(0);
-}
+const program = new Command()
+  .name('create-skillstash')
+  .description('Scaffold a Skillstash repository for managing agent skills')
+  .version('0.1.0')
+  .argument('[directory]', 'Target directory for the new repository')
+  .option('-t, --template <repo>', 'Template repo (owner/repo or URL)', 'galligan/skillstash')
+  .option('--marketplace <name>', 'Marketplace name (default: directory in kebab-case)')
+  .option('--owner-name <name>', 'Marketplace owner name')
+  .option('--owner-email <email>', 'Marketplace owner email')
+  .option('--origin <repo>', 'Set origin remote (owner/repo or URL)')
+  .option('--create-repo [target]', 'Create GitHub repo via gh CLI')
+  .option('--public', 'Create GitHub repo as public (default)')
+  .option('--private', 'Create GitHub repo as private')
+  .option('--default-agent <agent>', 'Default agent (claude or codex)', 'claude')
+  .option('--setup-labels', 'Create default GitHub labels')
+  .option('--skip-label-setup', 'Skip label setup')
+  .option('--upstream', 'Keep template as upstream remote (default: true)')
+  .option('--no-upstream', 'Remove template remote after clone')
+  .option('--no-interactive', 'Skip interactive prompts')
+  .action(main);
 
-const { target, options } = parseArgs(args);
+program.parse();
 
-if (!target) {
-  console.error('Error: target directory is required.');
-  printHelp();
-  process.exit(1);
-}
+// ============================================================================
+// Main Entry
+// ============================================================================
 
-const targetPath = resolve(process.cwd(), target);
+async function main(directory: string | undefined, opts: Record<string, unknown>) {
+  const options = parseOptions(opts);
 
-if (existsSync(targetPath) && !isEmptyDir(targetPath)) {
-  console.error(`Error: ${targetPath} already exists and is not empty.`);
-  process.exit(1);
-}
+  console.log('\n🎯 Skillstash Repository Setup\n');
 
-const templateUrl = normalizeTemplateUrl(options.template);
-
-run('git', ['clone', templateUrl, targetPath]);
-
-const repoName = basename(targetPath);
-const marketplaceName = options.marketplace ?? toKebab(repoName);
-const ownerName = options.ownerName ?? readGitConfig('user.name') ?? 'Skillstash';
-const ownerEmail = options.ownerEmail ?? readGitConfig('user.email') ?? undefined;
-let originUrl = options.origin;
-const defaultAgent = options.defaultAgent;
-const explicitRepoSlug = options.createRepoTarget;
-const setupLabels = options.setupLabels;
-
-// Extract upstream repo for action references (e.g., "galligan/skillstash")
-const upstreamRepo = extractRepoFromUrl(templateUrl);
-
-// Clean up automation scripts - child repos use composite actions from upstream
-cleanupAutomation(targetPath);
-
-// Generate minimal workflows that reference upstream composite actions
-await generateWorkflows(targetPath, upstreamRepo);
-
-// Generate lefthook config for local git hooks
-await generateLefthook(targetPath);
-
-// Generate minimal package.json
-await generatePackageJson(targetPath, repoName);
-
-if (options.createRepo) {
-  originUrl = await createRepoWithGh(repoName, options.visibility, options.createRepoTarget);
-}
-
-await updatePluginManifest(targetPath, ownerName, ownerEmail);
-await updateMarketplace(targetPath, marketplaceName, ownerName, ownerEmail);
-await updateDefaultAgent(targetPath, defaultAgent);
-const repoSlug = resolveRepoSlug(explicitRepoSlug, originUrl);
-await updateClaudeSettings(targetPath, repoSlug);
-
-if (setupLabels) {
-  await setupGitHubLabels(targetPath, repoSlug);
-}
-
-await updateGitRemotes(targetPath, templateUrl, originUrl, options.upstream);
-
-console.log('\nSkillstash ready:');
-console.log(`  cd ${target}`);
-console.log('  bun install');
-if (originUrl) {
-  console.log('  git push -u origin main');
-} else {
-  console.log('  git remote add origin https://github.com/<owner>/<repo>.git');
-  console.log('  git push -u origin main');
-}
-
-if (defaultAgent === 'claude') {
-  console.log('\nNext: configure Claude credentials for automation.');
-  console.log('  See docs/secrets.md → Claude Code Authentication');
-} else {
-  console.log('\nNext: configure Codex credentials for automation.');
-  console.log('  See docs/secrets.md → Codex Authentication');
-}
-
-console.log('\nWorkflows use actions from: ' + upstreamRepo);
-
-function printHelp() {
-  console.log(`\ncreate-skillstash <dir> [options]\n\nOptions:\n  --template <owner/repo|url>   Template repo (default: galligan/skillstash)\n  --marketplace <name>          Marketplace name (default: <dir> in kebab-case)\n  --owner-name <name>           Marketplace owner name (default: git user.name)\n  --owner-email <email>         Marketplace owner email (default: git user.email)\n  --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)\n  --create-repo [owner/repo]    Create GitHub repo via gh and set origin\n  --public                      Create GitHub repo as public (default)\n  --private                     Create GitHub repo as private\n  --default-agent <name>        Set default agent (claude | codex)\n  --setup-labels               Create default GitHub labels (requires gh)\n  --skip-label-setup            Skip label setup when creating a repo\n  --upstream                    Keep template as upstream (default: true)\n  --no-upstream                 Remove template remote after clone\n  -h, --help                    Show this help\n`);
-}
-
-function parseArgs(argv: string[]): { target: string | null; options: Options } {
-  const options: Options = {
-    template: 'galligan/skillstash',
-    upstream: true,
-    createRepo: false,
-    visibility: 'public',
-    defaultAgent: 'claude',
-    setupLabels: null,
-  };
-  let target: string | null = null;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (!arg) continue;
-
-    if (arg.startsWith('--create-repo=')) {
-      options.createRepo = true;
-      const value = arg.split('=')[1];
-      if (value) {
-        options.createRepoTarget = value;
-      }
-      continue;
+  // Interactive mode if no directory provided or explicitly enabled
+  if (!directory && options.interactive) {
+    const answers = await runInteractiveSetup(options);
+    directory = answers.directory;
+    options.ownerName = answers.ownerName;
+    options.ownerEmail = answers.ownerEmail;
+    options.defaultAgent = answers.defaultAgent;
+    options.createRepo = answers.createRepo;
+    if (answers.repoVisibility) {
+      options.visibility = answers.repoVisibility;
     }
+    options.setupLabels = answers.setupLabels;
+  }
 
-    if (arg.startsWith('--default-agent=')) {
-      const value = arg.split('=')[1];
-      if (value !== 'claude' && value !== 'codex') {
-        console.error('Error: --default-agent must be "claude" or "codex".');
-        process.exit(1);
-      }
-      options.defaultAgent = value as 'claude' | 'codex';
-      continue;
-    }
+  if (!directory) {
+    console.error('Error: directory is required. Run with --help for usage.');
+    process.exit(1);
+  }
 
-    if (!arg.startsWith('-') && !target) {
-      target = arg;
-      continue;
-    }
+  const targetPath = resolve(process.cwd(), directory);
 
-    switch (arg) {
-      case '--template':
-      case '-t':
-        options.template = argv[++i] ?? options.template;
-        break;
-      case '--marketplace':
-        options.marketplace = argv[++i];
-        break;
-      case '--owner-name':
-        options.ownerName = argv[++i];
-        break;
-      case '--owner-email':
-        options.ownerEmail = argv[++i];
-        break;
-      case '--origin':
-        options.origin = argv[++i];
-        break;
-      case '--create-repo':
-        options.createRepo = true;
-        if (argv[i + 1] && !argv[i + 1].startsWith('-')) {
-          options.createRepoTarget = argv[++i];
-        }
-        break;
-      case '--public':
-        options.visibility = 'public';
-        break;
-      case '--private':
-        options.visibility = 'private';
-        break;
-      case '--default-agent': {
-        const value = argv[++i];
-        if (value !== 'claude' && value !== 'codex') {
-          console.error('Error: --default-agent must be "claude" or "codex".');
-          process.exit(1);
-        }
-        options.defaultAgent = value;
-        break;
-      }
-      case '--setup-labels':
-        options.setupLabels = true;
-        break;
-      case '--skip-label-setup':
-        options.setupLabels = false;
-        break;
-      case '--upstream':
-        options.upstream = true;
-        break;
-      case '--no-upstream':
-        options.upstream = false;
-        break;
-      case '-h':
-      case '--help':
-        printHelp();
-        process.exit(0);
-      default:
-        console.error(`Unknown option: ${arg}`);
-        printHelp();
-        process.exit(1);
+  if (existsSync(targetPath) && !isEmptyDir(targetPath)) {
+    console.error(`Error: ${targetPath} already exists and is not empty.`);
+    process.exit(1);
+  }
+
+  // Clone template
+  const templateUrl = normalizeTemplateUrl(options.template);
+  const cloneSpinner = ora('Cloning template repository...').start();
+  try {
+    runQuiet('git', ['clone', templateUrl, targetPath]);
+    cloneSpinner.succeed('Template cloned');
+  } catch {
+    cloneSpinner.fail('Failed to clone template');
+    process.exit(1);
+  }
+
+  const repoName = basename(targetPath);
+  const marketplaceName = options.marketplace ?? toKebab(repoName);
+  const ownerName = options.ownerName ?? readGitConfig('user.name') ?? 'Skillstash';
+  const ownerEmail = options.ownerEmail ?? readGitConfig('user.email') ?? undefined;
+  let originUrl = options.origin;
+  const upstreamRepo = extractRepoFromUrl(templateUrl);
+
+  // Setup steps with spinners
+  const setupSpinner = ora('Setting up repository...').start();
+  try {
+    cleanupAutomation(targetPath);
+    setupSpinner.text = 'Generating workflow files...';
+    await generateWorkflows(targetPath, upstreamRepo);
+    setupSpinner.text = 'Generating lefthook config...';
+    await generateLefthook(targetPath);
+    setupSpinner.text = 'Generating package.json...';
+    await generatePackageJson(targetPath, repoName);
+    setupSpinner.succeed('Repository configured');
+  } catch (err) {
+    setupSpinner.fail('Failed to configure repository');
+    throw err;
+  }
+
+  // Create GitHub repo if requested
+  if (options.createRepo) {
+    const repoSpinner = ora('Creating GitHub repository...').start();
+    try {
+      originUrl = await createRepoWithGh(repoName, options.visibility, options.createRepoTarget);
+      repoSpinner.succeed(`GitHub repository created: ${originUrl.replace('.git', '')}`);
+    } catch {
+      repoSpinner.fail('Failed to create GitHub repository');
+      process.exit(1);
     }
   }
 
-  if (options.createRepo && options.origin) {
+  // Update manifests
+  const manifestSpinner = ora('Updating manifests...').start();
+  try {
+    await updatePluginManifest(targetPath, ownerName, ownerEmail);
+    await updateMarketplace(targetPath, marketplaceName, ownerName, ownerEmail);
+    await updateDefaultAgent(targetPath, options.defaultAgent);
+    const repoSlug = resolveRepoSlug(options.createRepoTarget, originUrl);
+    await updateClaudeSettings(targetPath, repoSlug);
+    manifestSpinner.succeed('Manifests updated');
+
+    // Setup labels
+    if (options.setupLabels && repoSlug) {
+      const labelsSpinner = ora('Setting up GitHub labels...').start();
+      try {
+        await setupGitHubLabels(targetPath, repoSlug);
+        labelsSpinner.succeed('GitHub labels configured');
+      } catch {
+        labelsSpinner.warn('Could not set up labels (will need to be done manually)');
+      }
+    }
+  } catch (err) {
+    manifestSpinner.fail('Failed to update manifests');
+    throw err;
+  }
+
+  // Update git remotes
+  const remotesSpinner = ora('Configuring git remotes...').start();
+  try {
+    await updateGitRemotes(targetPath, templateUrl, originUrl, options.upstream);
+    remotesSpinner.succeed('Git remotes configured');
+  } catch {
+    remotesSpinner.fail('Failed to configure git remotes');
+  }
+
+  // Print success message
+  printSuccess(directory, originUrl, options.defaultAgent, upstreamRepo);
+}
+
+// ============================================================================
+// Interactive Setup
+// ============================================================================
+
+async function runInteractiveSetup(options: Options): Promise<SetupAnswers> {
+  const gitName = readGitConfig('user.name');
+  const gitEmail = readGitConfig('user.email');
+  const ghAvailable = hasGh() && ghAuthed();
+
+  const answers = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'directory',
+      message: 'Repository directory:',
+      default: 'my-skills',
+      validate: (input: string) => {
+        if (!input.trim()) return 'Directory name is required';
+        const path = resolve(process.cwd(), input);
+        if (existsSync(path) && !isEmptyDir(path)) {
+          return `${path} already exists and is not empty`;
+        }
+        return true;
+      },
+    },
+    {
+      type: 'input',
+      name: 'ownerName',
+      message: 'Your name (for skill attribution):',
+      default: gitName ?? 'Skillstash',
+    },
+    {
+      type: 'input',
+      name: 'ownerEmail',
+      message: 'Your email:',
+      default: gitEmail ?? '',
+    },
+    {
+      type: 'list',
+      name: 'defaultAgent',
+      message: 'Default AI agent:',
+      choices: [
+        { name: 'Claude (Anthropic)', value: 'claude' },
+        { name: 'Codex (OpenAI)', value: 'codex' },
+      ],
+      default: options.defaultAgent,
+    },
+    {
+      type: 'confirm',
+      name: 'createRepo',
+      message: 'Create a GitHub repository?',
+      default: ghAvailable,
+      when: () => ghAvailable,
+    },
+    {
+      type: 'list',
+      name: 'repoVisibility',
+      message: 'Repository visibility:',
+      choices: [
+        { name: 'Public', value: 'public' },
+        { name: 'Private', value: 'private' },
+      ],
+      default: 'public',
+      when: (ans: { createRepo?: boolean }) => ans.createRepo,
+    },
+    {
+      type: 'confirm',
+      name: 'setupLabels',
+      message: 'Set up GitHub labels for skill workflow?',
+      default: true,
+      when: (ans: { createRepo?: boolean }) => ans.createRepo,
+    },
+  ]);
+
+  return {
+    directory: answers.directory,
+    ownerName: answers.ownerName,
+    ownerEmail: answers.ownerEmail,
+    defaultAgent: answers.defaultAgent,
+    createRepo: answers.createRepo ?? false,
+    repoVisibility: answers.repoVisibility,
+    setupLabels: answers.setupLabels ?? false,
+  };
+}
+
+// ============================================================================
+// Option Parsing
+// ============================================================================
+
+function parseOptions(opts: Record<string, unknown>): Options {
+  const createRepo = opts.createRepo !== undefined;
+  const createRepoTarget = typeof opts.createRepo === 'string' ? opts.createRepo : undefined;
+
+  // Determine visibility
+  let visibility: 'public' | 'private' = 'public';
+  if (opts.private) visibility = 'private';
+
+  // Determine label setup
+  let setupLabels = false;
+  if (opts.setupLabels) setupLabels = true;
+  if (opts.skipLabelSetup) setupLabels = false;
+  if (!opts.setupLabels && !opts.skipLabelSetup && createRepo) setupLabels = true;
+
+  // Validate agent
+  const defaultAgent = opts.defaultAgent as string;
+  if (defaultAgent !== 'claude' && defaultAgent !== 'codex') {
+    console.error('Error: --default-agent must be "claude" or "codex".');
+    process.exit(1);
+  }
+
+  // Validate conflicting options
+  if (createRepo && opts.origin) {
     console.error('Error: --create-repo cannot be used with --origin.');
     process.exit(1);
   }
 
-  if (options.setupLabels === null) {
-    options.setupLabels = options.createRepo;
+  return {
+    template: opts.template as string,
+    marketplace: opts.marketplace as string | undefined,
+    ownerName: opts.ownerName as string | undefined,
+    ownerEmail: opts.ownerEmail as string | undefined,
+    origin: opts.origin as string | undefined,
+    upstream: opts.upstream !== false,
+    createRepo,
+    createRepoTarget,
+    visibility,
+    defaultAgent: defaultAgent as 'claude' | 'codex',
+    setupLabels,
+    interactive: opts.interactive !== false,
+  };
+}
+
+// ============================================================================
+// Success Output
+// ============================================================================
+
+function printSuccess(
+  directory: string,
+  originUrl: string | undefined,
+  defaultAgent: string,
+  upstreamRepo: string,
+) {
+  console.log('\n✨ Skillstash repository ready!\n');
+  console.log('Next steps:');
+  console.log(`  cd ${directory}`);
+  console.log('  bun install');
+
+  if (originUrl) {
+    console.log('  git push -u origin main');
+  } else {
+    console.log('  git remote add origin https://github.com/<owner>/<repo>.git');
+    console.log('  git push -u origin main');
   }
 
-  return { target, options };
+  console.log('');
+  if (defaultAgent === 'claude') {
+    console.log('Configure Claude credentials for automation:');
+    console.log('  See docs/secrets.md → Claude Code Authentication');
+  } else {
+    console.log('Configure Codex credentials for automation:');
+    console.log('  See docs/secrets.md → Codex Authentication');
+  }
+
+  console.log(`\nWorkflows use actions from: ${upstreamRepo}`);
+  console.log('');
 }
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
 
 function normalizeTemplateUrl(template: string): string {
   if (template.startsWith('http://') || template.startsWith('https://')) {
@@ -247,21 +379,17 @@ function normalizeOriginUrl(origin: string): string {
 }
 
 function extractRepoFromUrl(url: string): string {
-  // Handle GitHub shorthand (owner/repo)
   if (/^[^/\s]+\/[^/\s]+$/.test(url.replace(/\.git$/, ''))) {
     return url.replace(/\.git$/, '');
   }
-  // Handle HTTPS URLs
   const httpsMatch = url.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
   if (httpsMatch?.[1]) {
     return httpsMatch[1];
   }
-  // Handle SSH URLs
   const sshMatch = url.match(/git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
   if (sshMatch?.[1]) {
     return sshMatch[1];
   }
-  // Default fallback
   return 'galligan/skillstash';
 }
 
@@ -276,10 +404,17 @@ function resolveRepoSlug(explicit: string | undefined, origin: string | undefine
   return undefined;
 }
 
+function runQuiet(cmd: string, args: string[]) {
+  const result = spawnSync(cmd, args, { stdio: 'pipe' });
+  if (result.status !== 0) {
+    throw new Error(`Command failed: ${cmd} ${args.join(' ')}`);
+  }
+}
+
 function run(cmd: string, args: string[]) {
   const result = spawnSync(cmd, args, { stdio: 'inherit' });
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    throw new Error(`Command failed: ${cmd} ${args.join(' ')}`);
   }
 }
 
@@ -300,14 +435,10 @@ function isEmptyDir(path: string): boolean {
 }
 
 function readGitConfig(key: string): string | null {
-  try {
-    const value = execSync(`git config --get ${key}`, { stdio: ['ignore', 'pipe', 'ignore'] })
-      .toString()
-      .trim();
-    return value.length > 0 ? value : null;
-  } catch {
-    return null;
-  }
+  const result = spawnSync('git', ['config', '--get', key], { encoding: 'utf-8' });
+  if (result.status !== 0) return null;
+  const value = result.stdout?.trim();
+  return value && value.length > 0 ? value : null;
 }
 
 function toKebab(value: string): string {
@@ -318,48 +449,9 @@ function toKebab(value: string): string {
     .toLowerCase();
 }
 
-async function createRepoWithGh(
-  repoName: string,
-  visibility: 'public' | 'private',
-  explicitTarget?: string,
-): Promise<string> {
-  if (!hasGh()) {
-    console.error('Error: gh CLI is required for --create-repo. Install from https://cli.github.com/.');
-    process.exit(1);
-  }
-  if (!ghAuthed()) {
-    console.error('Error: gh is not authenticated. Run `gh auth login` and retry.');
-    process.exit(1);
-  }
-
-  let owner: string | null = null;
-  let finalRepoName = repoName;
-
-  if (explicitTarget) {
-    if (!explicitTarget.includes('/')) {
-      console.error('Error: --create-repo expects "owner/repo" when a value is provided.');
-      process.exit(1);
-    }
-    const [explicitOwner, explicitRepo] = explicitTarget.split('/');
-    if (!explicitOwner || !explicitRepo) {
-      console.error('Error: --create-repo expects "owner/repo" when a value is provided.');
-      process.exit(1);
-    }
-    owner = explicitOwner;
-    finalRepoName = explicitRepo;
-  } else {
-    owner = ghUserLogin();
-    if (!owner) {
-      console.error('Error: unable to determine GitHub user via `gh api user`.');
-      process.exit(1);
-    }
-  }
-
-  const visibilityFlag = visibility === 'private' ? '--private' : '--public';
-  run('gh', ['repo', 'create', `${owner}/${finalRepoName}`, visibilityFlag, '--confirm']);
-
-  return `https://github.com/${owner}/${finalRepoName}.git`;
-}
+// ============================================================================
+// GitHub CLI Functions
+// ============================================================================
 
 function hasGh(): boolean {
   const result = spawnSync('gh', ['--version'], { stdio: 'ignore' });
@@ -377,6 +469,70 @@ function ghUserLogin(): string | null {
   const login = result.stdout?.trim();
   return login && login.length > 0 ? login : null;
 }
+
+async function createRepoWithGh(
+  repoName: string,
+  visibility: 'public' | 'private',
+  explicitTarget?: string,
+): Promise<string> {
+  if (!hasGh()) {
+    throw new Error('gh CLI is required. Install from https://cli.github.com/');
+  }
+  if (!ghAuthed()) {
+    throw new Error('gh is not authenticated. Run `gh auth login` first.');
+  }
+
+  let owner: string | null = null;
+  let finalRepoName = repoName;
+
+  if (explicitTarget) {
+    if (!explicitTarget.includes('/')) {
+      throw new Error('--create-repo expects "owner/repo" format');
+    }
+    const [explicitOwner, explicitRepo] = explicitTarget.split('/');
+    if (!explicitOwner || !explicitRepo) {
+      throw new Error('--create-repo expects "owner/repo" format');
+    }
+    owner = explicitOwner;
+    finalRepoName = explicitRepo;
+  } else {
+    owner = ghUserLogin();
+    if (!owner) {
+      throw new Error('Unable to determine GitHub user');
+    }
+  }
+
+  const visibilityFlag = visibility === 'private' ? '--private' : '--public';
+  run('gh', ['repo', 'create', `${owner}/${finalRepoName}`, visibilityFlag, '--confirm']);
+
+  return `https://github.com/${owner}/${finalRepoName}.git`;
+}
+
+async function setupGitHubLabels(root: string, repoSlug: string) {
+  const labelsPath = join(root, '.skillstash', 'labels.json');
+  if (!existsSync(labelsPath)) {
+    return;
+  }
+
+  const raw = await readFile(labelsPath, 'utf-8');
+  const labels = JSON.parse(raw) as Array<{ name: string; color: string; description?: string }>;
+
+  for (const label of labels) {
+    const args = ['label', 'create', label.name, '--color', label.color, '--repo', repoSlug, '--force'];
+    if (label.description) {
+      args.push('--description', label.description);
+    }
+    try {
+      runQuiet('gh', args);
+    } catch {
+      // Ignore individual label failures
+    }
+  }
+}
+
+// ============================================================================
+// Configuration Updates
+// ============================================================================
 
 async function updateDefaultAgent(root: string, agent: 'claude' | 'codex') {
   const path = join(root, '.skillstash', 'config.yml');
@@ -415,40 +571,6 @@ async function updateDefaultAgent(root: string, agent: 'claude' | 'codex') {
   await writeFile(path, lines.join('\n'), 'utf-8');
 }
 
-async function setupGitHubLabels(root: string, repoSlug: string | undefined) {
-  if (!repoSlug) {
-    console.log('Skipping labels: repo slug not available yet.');
-    return;
-  }
-  if (!hasGh()) {
-    console.log('Skipping labels: gh CLI not found.');
-    return;
-  }
-  if (!ghAuthed()) {
-    console.log('Skipping labels: gh is not authenticated.');
-    return;
-  }
-
-  const labelsPath = join(root, '.skillstash', 'labels.json');
-  if (!existsSync(labelsPath)) {
-    console.log('Skipping labels: .skillstash/labels.json not found.');
-    return;
-  }
-
-  const raw = await readFile(labelsPath, 'utf-8');
-  const labels = JSON.parse(raw) as Array<{ name: string; color: string; description?: string }>;
-
-  for (const label of labels) {
-    const args = ['label', 'create', label.name, '--color', label.color, '--repo', repoSlug, '--force'];
-    if (label.description) {
-      args.push('--description', label.description);
-    }
-    run('gh', args);
-  }
-
-  console.log(`Applied ${labels.length} labels to ${repoSlug}.`);
-}
-
 async function updateClaudeSettings(root: string, repoSlug: string | undefined) {
   const path = join(root, '.claude', 'settings.json');
   if (!existsSync(path)) return;
@@ -475,7 +597,7 @@ async function updateClaudeSettings(root: string, repoSlug: string | undefined) 
 
     await writeFile(path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
   } catch {
-    // Skip if settings.json is not valid JSON.
+    // Skip if settings.json is not valid JSON
   }
 }
 
@@ -539,42 +661,40 @@ async function updateGitRemotes(
   if (originUrl) {
     const normalizedOrigin = normalizeOriginUrl(originUrl);
     if (hasOrigin) {
-      run('git', ['-C', root, 'remote', 'set-url', 'origin', normalizedOrigin]);
+      runQuiet('git', ['-C', root, 'remote', 'set-url', 'origin', normalizedOrigin]);
     } else {
-      run('git', ['-C', root, 'remote', 'add', 'origin', normalizedOrigin]);
+      runQuiet('git', ['-C', root, 'remote', 'add', 'origin', normalizedOrigin]);
     }
-    if (upstream) {
-      if (!hasUpstream) {
-        run('git', ['-C', root, 'remote', 'add', 'upstream', templateUrl]);
-      }
+    if (upstream && !hasUpstream) {
+      runQuiet('git', ['-C', root, 'remote', 'add', 'upstream', templateUrl]);
     }
     return;
   }
 
   if (upstream) {
     if (hasOrigin && !hasUpstream) {
-      run('git', ['-C', root, 'remote', 'rename', 'origin', 'upstream']);
+      runQuiet('git', ['-C', root, 'remote', 'rename', 'origin', 'upstream']);
       return;
     }
     if (hasOrigin && hasUpstream) {
-      run('git', ['-C', root, 'remote', 'remove', 'origin']);
+      runQuiet('git', ['-C', root, 'remote', 'remove', 'origin']);
       return;
     }
     if (!hasOrigin && !hasUpstream) {
-      run('git', ['-C', root, 'remote', 'add', 'upstream', templateUrl]);
+      runQuiet('git', ['-C', root, 'remote', 'add', 'upstream', templateUrl]);
     }
     return;
   }
 
   if (hasOrigin) {
-    run('git', ['-C', root, 'remote', 'remove', 'origin']);
+    runQuiet('git', ['-C', root, 'remote', 'remove', 'origin']);
   }
 }
 
-/**
- * Remove automation scripts and packages that are now handled by composite actions.
- * Child repos don't need the full @skillstash/core package - they use actions from upstream.
- */
+// ============================================================================
+// Repository Setup Functions
+// ============================================================================
+
 function cleanupAutomation(root: string) {
   const dirsToRemove = [
     'scripts/automation',
@@ -605,7 +725,6 @@ function cleanupAutomation(root: string) {
     }
   }
 
-  // Clean up empty scripts directory if it exists
   const scriptsDir = join(root, 'scripts');
   if (existsSync(scriptsDir)) {
     try {
@@ -614,14 +733,11 @@ function cleanupAutomation(root: string) {
         rmSync(scriptsDir, { recursive: true, force: true });
       }
     } catch {
-      // Ignore if directory doesn't exist
+      // Ignore
     }
   }
 }
 
-/**
- * Generate minimal workflow files that use composite actions from upstream.
- */
 async function generateWorkflows(root: string, upstreamRepo: string) {
   const workflowsDir = join(root, '.github', 'workflows');
   await mkdir(workflowsDir, { recursive: true });
@@ -718,9 +834,6 @@ jobs:
   await writeFile(join(workflowsDir, 'release.yml'), releaseWorkflow);
 }
 
-/**
- * Generate lefthook.yml for git hooks in child repos.
- */
 async function generateLefthook(root: string) {
   const lefthookConfig = `# Lefthook configuration
 # https://github.com/evilmartians/lefthook
@@ -749,9 +862,6 @@ pre-commit:
   await writeFile(join(root, 'lefthook.yml'), lefthookConfig);
 }
 
-/**
- * Generate minimal package.json for child repos.
- */
 async function generatePackageJson(root: string, repoName: string) {
   const packageJson = {
     name: toKebab(repoName),
