@@ -5,9 +5,9 @@
     "": {
       "name": "skills-factory",
       "devDependencies": {
-        "@evilmartians/lefthook": "latest",
-        "@types/bun": "latest",
-        "markdownlint-cli2": "latest",
+        "@evilmartians/lefthook": "^2.0.13",
+        "@types/bun": "^1.3.5",
+        "markdownlint-cli2": "^0.20.0",
       },
     },
     "packages/core": {
