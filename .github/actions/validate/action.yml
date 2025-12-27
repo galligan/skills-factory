@@ -1,0 +1,57 @@
+name: 'Skillstash Validate'
+description: 'Validate skills in the repository'
+
+inputs:
+  skills-dir:
+    description: 'Directory containing skills'
+    required: false
+    default: 'skills'
+  fail-on-error:
+    description: 'Whether to fail the action if validation errors are found'
+    required: false
+    default: 'true'
+
+outputs:
+  passed:
+    description: 'Whether all validations passed'
+    value: ${{ steps.validate.outputs.passed }}
+  errors:
+    description: 'Number of validation errors'
+    value: ${{ steps.validate.outputs.errors }}
+  warnings:
+    description: 'Number of validation warnings'
+    value: ${{ steps.validate.outputs.warnings }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate skills
+      id: validate
+      shell: bash
+      run: |
+        bun -e "
+          import { validateAllSkills, printResults, hasErrors, DEFAULT_VALIDATION_CONFIG } from '@skillstash/core/validation';
+
+          const config = {
+            ...DEFAULT_VALIDATION_CONFIG,
+            skillsDir: '${{ inputs.skills-dir }}',
+          };
+
+          const results = await validateAllSkills(config);
+          printResults(results, config);
+
+          const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
+          const totalWarnings = results.reduce((sum, r) => sum + r.warnings.length, 0);
+          const passed = !hasErrors(results);
+
+          // Set outputs
+          const fs = await import('fs');
+          const outputFile = process.env.GITHUB_OUTPUT;
+          if (outputFile) {
+            fs.appendFileSync(outputFile, \`passed=\${passed}\n\`);
+            fs.appendFileSync(outputFile, \`errors=\${totalErrors}\n\`);
+            fs.appendFileSync(outputFile, \`warnings=\${totalWarnings}\n\`);
+          }
+
+          process.exit(passed || '${{ inputs.fail-on-error }}' !== 'true' ? 0 : 1);
+        "

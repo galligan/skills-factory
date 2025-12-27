@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 
 interface Options {
@@ -53,6 +53,21 @@ const defaultAgent = options.defaultAgent;
 const explicitRepoSlug = options.createRepoTarget;
 const setupLabels = options.setupLabels;
 
+// Extract upstream repo for action references (e.g., "galligan/skillstash")
+const upstreamRepo = extractRepoFromUrl(templateUrl);
+
+// Clean up automation scripts - child repos use composite actions from upstream
+cleanupAutomation(targetPath);
+
+// Generate minimal workflows that reference upstream composite actions
+await generateWorkflows(targetPath, upstreamRepo);
+
+// Generate lefthook config for local git hooks
+await generateLefthook(targetPath);
+
+// Generate minimal package.json
+await generatePackageJson(targetPath, repoName);
+
 if (options.createRepo) {
   originUrl = await createRepoWithGh(repoName, options.visibility, options.createRepoTarget);
 }
@@ -71,6 +86,7 @@ await updateGitRemotes(targetPath, templateUrl, originUrl, options.upstream);
 
 console.log('\nSkillstash ready:');
 console.log(`  cd ${target}`);
+console.log('  bun install');
 if (originUrl) {
   console.log('  git push -u origin main');
 } else {
@@ -85,6 +101,8 @@ if (defaultAgent === 'claude') {
   console.log('\nNext: configure Codex credentials for automation.');
   console.log('  See docs/secrets.md → Codex Authentication');
 }
+
+console.log('\nWorkflows use actions from: ' + upstreamRepo);
 
 function printHelp() {
   console.log(`\ncreate-skillstash <dir> [options]\n\nOptions:\n  --template <owner/repo|url>   Template repo (default: galligan/skillstash)\n  --marketplace <name>          Marketplace name (default: <dir> in kebab-case)\n  --owner-name <name>           Marketplace owner name (default: git user.name)\n  --owner-email <email>         Marketplace owner email (default: git user.email)\n  --origin <owner/repo|url>     Set origin remote (GitHub shorthand supported)\n  --create-repo [owner/repo]    Create GitHub repo via gh and set origin\n  --public                      Create GitHub repo as public (default)\n  --private                     Create GitHub repo as private\n  --default-agent <name>        Set default agent (claude | codex)\n  --setup-labels               Create default GitHub labels (requires gh)\n  --skip-label-setup            Skip label setup when creating a repo\n  --upstream                    Keep template as upstream (default: true)\n  --no-upstream                 Remove template remote after clone\n  -h, --help                    Show this help\n`);
@@ -226,6 +244,25 @@ function normalizeOriginUrl(origin: string): string {
     return `https://github.com/${origin}.git`;
   }
   return origin.endsWith('.git') ? origin : origin;
+}
+
+function extractRepoFromUrl(url: string): string {
+  // Handle GitHub shorthand (owner/repo)
+  if (/^[^/\s]+\/[^/\s]+$/.test(url.replace(/\.git$/, ''))) {
+    return url.replace(/\.git$/, '');
+  }
+  // Handle HTTPS URLs
+  const httpsMatch = url.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (httpsMatch?.[1]) {
+    return httpsMatch[1];
+  }
+  // Handle SSH URLs
+  const sshMatch = url.match(/git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
+  if (sshMatch?.[1]) {
+    return sshMatch[1];
+  }
+  // Default fallback
+  return 'galligan/skillstash';
 }
 
 function resolveRepoSlug(explicit: string | undefined, origin: string | undefined): string | undefined {
@@ -532,4 +569,205 @@ async function updateGitRemotes(
   if (hasOrigin) {
     run('git', ['-C', root, 'remote', 'remove', 'origin']);
   }
+}
+
+/**
+ * Remove automation scripts and packages that are now handled by composite actions.
+ * Child repos don't need the full @skillstash/core package - they use actions from upstream.
+ */
+function cleanupAutomation(root: string) {
+  const dirsToRemove = [
+    'scripts/automation',
+    'scripts/sync',
+    'scripts/lint',
+    'packages',
+    '.githooks',
+    '.github/actions',
+  ];
+
+  const filesToRemove = [
+    'scripts/setup-git-hooks.ts',
+    'bun.lock',
+    'tsconfig.json',
+  ];
+
+  for (const dir of dirsToRemove) {
+    const path = join(root, dir);
+    if (existsSync(path)) {
+      rmSync(path, { recursive: true, force: true });
+    }
+  }
+
+  for (const file of filesToRemove) {
+    const path = join(root, file);
+    if (existsSync(path)) {
+      rmSync(path, { force: true });
+    }
+  }
+
+  // Clean up empty scripts directory if it exists
+  const scriptsDir = join(root, 'scripts');
+  if (existsSync(scriptsDir)) {
+    try {
+      const remaining = readdirSync(scriptsDir);
+      if (remaining.length === 0) {
+        rmSync(scriptsDir, { recursive: true, force: true });
+      }
+    } catch {
+      // Ignore if directory doesn't exist
+    }
+  }
+}
+
+/**
+ * Generate minimal workflow files that use composite actions from upstream.
+ */
+async function generateWorkflows(root: string, upstreamRepo: string) {
+  const workflowsDir = join(root, '.github', 'workflows');
+  await mkdir(workflowsDir, { recursive: true });
+
+  const validateWorkflow = `name: Validate Skills
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ${upstreamRepo}/.github/actions/setup@main
+
+      - uses: ${upstreamRepo}/.github/actions/validate@main
+`;
+
+  const issueCreateWorkflow = `name: Issue Create Skill
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  create-skill:
+    if: github.event.label.name == 'skill:create'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ${upstreamRepo}/.github/actions/setup@main
+
+      - uses: ${upstreamRepo}/.github/actions/create-skill@main
+        with:
+          github-token: \${{ github.token }}
+`;
+
+  const mergeReadinessWorkflow = `name: Merge Readiness
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "skills/**"
+
+jobs:
+  check-readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ${upstreamRepo}/.github/actions/setup@main
+
+      - uses: ${upstreamRepo}/.github/actions/merge-readiness@main
+        with:
+          github-token: \${{ github.token }}
+`;
+
+  const releaseWorkflow = `name: Release Skills
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: galligan/skills-packager@v1
+        with:
+          github-token: \${{ github.token }}
+`;
+
+  await writeFile(join(workflowsDir, 'validate.yml'), validateWorkflow);
+  await writeFile(join(workflowsDir, 'issue-create-skill.yml'), issueCreateWorkflow);
+  await writeFile(join(workflowsDir, 'merge-readiness.yml'), mergeReadinessWorkflow);
+  await writeFile(join(workflowsDir, 'release.yml'), releaseWorkflow);
+}
+
+/**
+ * Generate lefthook.yml for git hooks in child repos.
+ */
+async function generateLefthook(root: string) {
+  const lefthookConfig = `# Lefthook configuration
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    lockfile:
+      run: bun install --frozen-lockfile > /dev/null 2>&1 || (echo "❌ bun.lock is out of sync. Run 'bun install' and commit the updated lockfile." && exit 1)
+      skip:
+        - merge
+        - rebase
+
+    lint-md:
+      glob: "*.md"
+      run: bunx markdownlint-cli2 --fix {staged_files} && git add {staged_files}
+
+    validate-skills:
+      glob: "skills/**/*.md"
+      run: bunx @skillstash/core validate
+      skip:
+        - merge
+        - rebase
+`;
+
+  await writeFile(join(root, 'lefthook.yml'), lefthookConfig);
+}
+
+/**
+ * Generate minimal package.json for child repos.
+ */
+async function generatePackageJson(root: string, repoName: string) {
+  const packageJson = {
+    name: toKebab(repoName),
+    version: '0.1.0',
+    type: 'module',
+    description: 'Skills repository powered by Skillstash',
+    scripts: {
+      validate: 'bunx @skillstash/core validate',
+      'lint:md': 'bunx markdownlint-cli2 --config .markdownlint-cli2.jsonc',
+      'lint:md:fix': 'bunx markdownlint-cli2 --config .markdownlint-cli2.jsonc --fix',
+      prepare: 'lefthook install',
+    },
+    devDependencies: {
+      '@evilmartians/lefthook': '^2.0.13',
+    },
+  };
+
+  await writeFile(join(root, 'package.json'), JSON.stringify(packageJson, null, 2) + '\n');
 }

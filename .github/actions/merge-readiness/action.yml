@@ -1,0 +1,98 @@
+name: 'Skillstash Merge Readiness'
+description: 'Check if a PR is ready to merge'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+  require-validation:
+    description: 'Require validation to pass'
+    required: false
+    default: 'true'
+  require-review:
+    description: 'Require at least one approval'
+    required: false
+    default: 'false'
+  pr-number:
+    description: 'PR number to check (defaults to triggering PR)'
+    required: false
+    default: ''
+
+outputs:
+  ready:
+    description: 'Whether the PR is ready to merge'
+    value: ${{ steps.check.outputs.ready }}
+  reason:
+    description: 'Reason if not ready'
+    value: ${{ steps.check.outputs.reason }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check merge readiness
+      id: check
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        bun -e "
+          import { validateAllSkills, hasErrors, DEFAULT_VALIDATION_CONFIG } from '@skillstash/core/validation';
+          import { gh } from '@skillstash/core/utils';
+
+          const prNumber = '${{ inputs.pr-number }}' || process.env.GITHUB_EVENT_PATH
+            ? JSON.parse(await Bun.file(process.env.GITHUB_EVENT_PATH).text()).pull_request?.number
+            : null;
+
+          const reasons: string[] = [];
+          let ready = true;
+
+          // Check validation
+          if ('${{ inputs.require-validation }}' === 'true') {
+            const results = await validateAllSkills(DEFAULT_VALIDATION_CONFIG);
+            if (hasErrors(results)) {
+              ready = false;
+              reasons.push('Validation errors found');
+            }
+          }
+
+          // Check reviews if required
+          if ('${{ inputs.require-review }}' === 'true' && prNumber) {
+            const reviewResult = await gh('pr', 'view', prNumber.toString(), '--json', 'reviewDecision');
+            if (reviewResult.success) {
+              const pr = JSON.parse(reviewResult.stdout);
+              if (pr.reviewDecision !== 'APPROVED') {
+                ready = false;
+                reasons.push('PR not approved');
+              }
+            }
+          }
+
+          // Check CI status if PR number available
+          if (prNumber) {
+            const checksResult = await gh('pr', 'checks', prNumber.toString(), '--json', 'state');
+            if (checksResult.success) {
+              const checks = JSON.parse(checksResult.stdout);
+              const failedChecks = checks.filter((c: any) => c.state === 'FAILURE');
+              if (failedChecks.length > 0) {
+                ready = false;
+                reasons.push(\`\${failedChecks.length} CI check(s) failed\`);
+              }
+            }
+          }
+
+          console.log(ready ? '✓ Ready to merge' : '✗ Not ready to merge');
+          if (reasons.length > 0) {
+            console.log('Reasons:', reasons.join(', '));
+          }
+
+          // Set outputs
+          const fs = await import('fs');
+          const outputFile = process.env.GITHUB_OUTPUT;
+          if (outputFile) {
+            fs.appendFileSync(outputFile, \`ready=\${ready}\n\`);
+            fs.appendFileSync(outputFile, \`reason=\${reasons.join(', ')}\n\`);
+          }
+
+          process.exit(ready ? 0 : 1);
+        "

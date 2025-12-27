@@ -1,0 +1,39 @@
+name: 'Skillstash Setup'
+description: 'Set up Bun and install @skillstash/core'
+
+inputs:
+  bun-version:
+    description: 'Bun version to use'
+    required: false
+    default: 'latest'
+  checkout:
+    description: 'Whether to checkout the repository'
+    required: false
+    default: 'true'
+  fetch-depth:
+    description: 'Git fetch depth for checkout'
+    required: false
+    default: '1'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout
+      if: inputs.checkout == 'true'
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: ${{ inputs.fetch-depth }}
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v1
+      with:
+        bun-version: ${{ inputs.bun-version }}
+
+    - name: Install @skillstash/core
+      shell: bash
+      run: |
+        if [ -f "bun.lockb" ] || [ -f "package.json" ]; then
+          bun install --frozen-lockfile 2>/dev/null || bun install
+        else
+          bun add @skillstash/core@latest
+        fi

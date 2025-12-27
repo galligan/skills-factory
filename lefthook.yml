@@ -1,0 +1,37 @@
+# Lefthook configuration
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    lockfile:
+      run: bun install --frozen-lockfile > /dev/null 2>&1 || (echo "❌ bun.lock is out of sync. Run 'bun install' and commit the updated lockfile." && exit 1)
+      skip:
+        - merge
+        - rebase
+
+    lint-md:
+      glob: "*.md"
+      run: bun run lint:md:fix && git add {staged_files}
+
+    validate-skills:
+      glob: "skills/**/*.md"
+      run: bun run validate
+      skip:
+        - merge
+        - rebase
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: bun run --filter '@skillstash/core' typecheck
+      skip:
+        - merge
+        - rebase
+
+    test:
+      run: bun run --filter '@skillstash/core' test
+      skip:
+        - merge
+        - rebase

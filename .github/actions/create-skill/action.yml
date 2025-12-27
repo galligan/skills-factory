@@ -1,0 +1,114 @@
+name: 'Skillstash Create Skill'
+description: 'Create a skill from a GitHub issue'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+  skills-dir:
+    description: 'Directory containing skills'
+    required: false
+    default: 'skills'
+  issue-number:
+    description: 'Issue number to create skill from (defaults to triggering issue)'
+    required: false
+    default: ''
+  branch-prefix:
+    description: 'Prefix for the created branch'
+    required: false
+    default: 'skill/add-'
+
+outputs:
+  skill-name:
+    description: 'Name of the created skill'
+    value: ${{ steps.create.outputs.skill-name }}
+  branch-name:
+    description: 'Name of the created branch'
+    value: ${{ steps.create.outputs.branch-name }}
+  pr-url:
+    description: 'URL of the created PR (if any)'
+    value: ${{ steps.create.outputs.pr-url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create skill from issue
+      id: create
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        bun -e "
+          import { extractField, sanitizeLines, issueTitleToName } from '@skillstash/core/github';
+          import { normalizeSkillName, buildSkillMarkdown, skillDirectory, skillFilePath } from '@skillstash/core/skill';
+          import { branchName } from '@skillstash/core/workflow';
+          import { git, gh, configureGitUser, commitAndPush } from '@skillstash/core/utils';
+          import { mkdir } from 'node:fs/promises';
+
+          const issueNumber = '${{ inputs.issue-number }}' || process.env.GITHUB_EVENT_PATH
+            ? JSON.parse(await Bun.file(process.env.GITHUB_EVENT_PATH).text()).issue?.number
+            : null;
+
+          if (!issueNumber) {
+            console.error('No issue number provided');
+            process.exit(1);
+          }
+
+          // Fetch issue details
+          const issueResult = await gh('issue', 'view', issueNumber.toString(), '--json', 'title,body,labels');
+          if (!issueResult.success) {
+            console.error('Failed to fetch issue:', issueResult.stderr);
+            process.exit(1);
+          }
+
+          const issue = JSON.parse(issueResult.stdout);
+          const rawName = issueTitleToName(issue.title) || extractField(issue.body, 'Name') || extractField(issue.body, 'Skill Name');
+
+          if (!rawName) {
+            console.error('Could not extract skill name from issue');
+            process.exit(1);
+          }
+
+          const { name: skillName } = normalizeSkillName(rawName);
+          const description = extractField(issue.body, 'Description') || 'No description provided';
+          const spec = extractField(issue.body, 'Spec') || extractField(issue.body, 'Specification');
+          const sources = extractField(issue.body, 'Sources') || extractField(issue.body, 'References');
+
+          // Generate skill content
+          const skillContent = buildSkillMarkdown({
+            name: skillName,
+            description: sanitizeLines(description),
+            spec: spec ? sanitizeLines(spec) : null,
+            sources: sources ? sanitizeLines(sources) : null,
+          });
+
+          // Create branch
+          const branch = '${{ inputs.branch-prefix }}' + skillName;
+          await git('checkout', '-b', branch);
+
+          // Create skill directory and file
+          const dir = skillDirectory(skillName);
+          await mkdir(dir, { recursive: true });
+          await Bun.write(skillFilePath(skillName), skillContent);
+
+          // Configure git and commit
+          await configureGitUser('skillstash[bot]', 'skillstash[bot]@users.noreply.github.com');
+          const commitResult = await commitAndPush([dir], \`feat(skill): add \${skillName} skill\n\nCloses #\${issueNumber}\`, branch);
+
+          if (!commitResult.success) {
+            console.error('Failed to commit:', commitResult.stderr);
+            process.exit(1);
+          }
+
+          console.log(\`Created skill: \${skillName}\`);
+          console.log(\`Branch: \${branch}\`);
+
+          // Set outputs
+          const fs = await import('fs');
+          const outputFile = process.env.GITHUB_OUTPUT;
+          if (outputFile) {
+            fs.appendFileSync(outputFile, \`skill-name=\${skillName}\n\`);
+            fs.appendFileSync(outputFile, \`branch-name=\${branch}\n\`);
+          }
+        "

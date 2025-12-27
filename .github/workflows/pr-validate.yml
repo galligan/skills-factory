@@ -15,17 +15,13 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - uses: ./.github/actions/setup
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Validate skills
-        run: bun run validate
+      - uses: ./.github/actions/validate
+        with:
+          skills-dir: 'skills'
 
       - name: Validate skills (packager)
         uses: galligan/skills-packager@v1

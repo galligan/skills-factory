@@ -1,5 +1,8 @@
 {
-  "projectInstructions": "See AGENTS.md",
+  "enabledPlugins": {
+    "skillstash@skillstash": true,
+    "typescript-lsp@claude-plugins-official": true
+  },
   "extraKnownMarketplaces": {
     "skillstash": {
       "source": {
@@ -8,7 +11,5 @@
       }
     }
   },
-  "enabledPlugins": {
-    "skillstash@skillstash": true
-  }
+  "projectInstructions": "See AGENTS.md"
 }
