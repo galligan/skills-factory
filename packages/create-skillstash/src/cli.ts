@@ -74,16 +74,24 @@ async function main(directory: string | undefined, opts: Record<string, unknown>
 
   // Interactive mode if no directory provided or explicitly enabled
   if (!directory && options.interactive) {
-    const answers = await runInteractiveSetup(options);
-    directory = answers.directory;
-    options.ownerName = answers.ownerName;
-    options.ownerEmail = answers.ownerEmail;
-    options.defaultAgent = answers.defaultAgent;
-    options.createRepo = answers.createRepo;
-    if (answers.repoVisibility) {
-      options.visibility = answers.repoVisibility;
+    try {
+      const answers = await runInteractiveSetup(options);
+      directory = answers.directory;
+      options.ownerName = answers.ownerName;
+      options.ownerEmail = answers.ownerEmail;
+      options.defaultAgent = answers.defaultAgent;
+      options.createRepo = answers.createRepo;
+      if (answers.repoVisibility) {
+        options.visibility = answers.repoVisibility;
+      }
+      options.setupLabels = answers.setupLabels;
+    } catch (err) {
+      if (err instanceof Error && err.name === 'ExitPromptError') {
+        console.log('\n\nSetup cancelled.');
+        process.exit(0);
+      }
+      throw err;
     }
-    options.setupLabels = answers.setupLabels;
   }
 
   if (!directory) {
