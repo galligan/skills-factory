@@ -2,7 +2,6 @@
 
 ## [0.2.0](https://github.com/galligan/skillstash/compare/create-skillstash-v0.1.0...create-skillstash-v0.2.0) (2025-12-27)
 
-
 ### Features
 
 * bootstrap skills-factory scaffold ([#1](https://github.com/galligan/skillstash/issues/1)) ([0cc9cfe](https://github.com/galligan/skillstash/commit/0cc9cfe34075b65c8ac06c748b7c802aa0608c25))

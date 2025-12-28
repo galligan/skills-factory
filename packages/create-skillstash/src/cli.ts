@@ -14,7 +14,6 @@ import ora from 'ora';
 interface SetupAnswers {
   directory: string;
   ownerName: string;
-  ownerEmail: string;
   defaultAgent: 'claude' | 'codex';
   createRepo: boolean;
   repoVisibility?: 'public' | 'private';
@@ -25,7 +24,6 @@ interface Options {
   template: string;
   marketplace?: string;
   ownerName?: string;
-  ownerEmail?: string;
   origin?: string;
   upstream: boolean;
   createRepo: boolean;
@@ -48,7 +46,6 @@ const program = new Command()
   .option('-t, --template <repo>', 'Template repo (owner/repo or URL)', 'galligan/skillstash')
   .option('--marketplace <name>', 'Marketplace name (default: directory in kebab-case)')
   .option('--owner-name <name>', 'Marketplace owner name')
-  .option('--owner-email <email>', 'Marketplace owner email')
   .option('--origin <repo>', 'Set origin remote (owner/repo or URL)')
   .option('--create-repo [target]', 'Create GitHub repo via gh CLI')
   .option('--public', 'Create GitHub repo as public (default)')
@@ -78,7 +75,6 @@ async function main(directory: string | undefined, opts: Record<string, unknown>
       const answers = await runInteractiveSetup(options);
       directory = answers.directory;
       options.ownerName = answers.ownerName;
-      options.ownerEmail = answers.ownerEmail;
       options.defaultAgent = answers.defaultAgent;
       options.createRepo = answers.createRepo;
       if (answers.repoVisibility) {
@@ -118,8 +114,7 @@ async function main(directory: string | undefined, opts: Record<string, unknown>
   }
 
   const repoName = basename(targetPath);
-  const ownerName = options.ownerName ?? readGitConfig('user.name') ?? 'Skillstash';
-  const ownerEmail = options.ownerEmail ?? readGitConfig('user.email') ?? undefined;
+  const ownerName = options.ownerName ?? ghUserLogin() ?? readGitConfig('user.name') ?? 'Skillstash';
   const userSlug = ghUserLogin() ?? toKebab(ownerName);
   const marketplaceName = options.marketplace ?? `${userSlug}-skillstash`;
   const pluginName = 'my-skills';
@@ -157,8 +152,8 @@ async function main(directory: string | undefined, opts: Record<string, unknown>
   // Update manifests
   const manifestSpinner = ora('Updating manifests...').start();
   try {
-    await updatePluginManifest(targetPath, pluginName, ownerName, ownerEmail);
-    await updateMarketplace(targetPath, marketplaceName, ownerName, ownerEmail);
+    await updatePluginManifest(targetPath, pluginName, ownerName);
+    await updateMarketplace(targetPath, marketplaceName, ownerName);
     await updateDefaultAgent(targetPath, options.defaultAgent);
     const repoSlug = resolveRepoSlug(options.createRepoTarget, originUrl);
     await updateClaudeSettings(targetPath, repoSlug, marketplaceName, pluginName);
@@ -198,10 +193,9 @@ async function main(directory: string | undefined, opts: Record<string, unknown>
 
 async function runInteractiveSetup(options: Options): Promise<SetupAnswers> {
   const gitName = readGitConfig('user.name');
-  const gitEmail = readGitConfig('user.email');
   const ghAvailable = hasGh() && ghAuthed();
   const ghUsername = ghAvailable ? ghUserLogin() : null;
-  const defaultName = ghUsername ?? gitName ?? 'user';
+  const ownerName = ghUsername ?? gitName ?? 'user';
 
   const answers = await inquirer.prompt([
     {
@@ -237,18 +231,6 @@ async function runInteractiveSetup(options: Options): Promise<SetupAnswers> {
       when: (ans: { createRepo?: boolean }) => ans.createRepo,
     },
     {
-      type: 'input',
-      name: 'ownerName',
-      message: 'Your name (for skill attribution):',
-      default: defaultName,
-    },
-    {
-      type: 'input',
-      name: 'ownerEmail',
-      message: 'Your email (optional):',
-      default: gitEmail ?? '',
-    },
-    {
       type: 'confirm',
       name: 'setupLabels',
       message: 'Set up GitHub labels for skill workflow?',
@@ -259,9 +241,8 @@ async function runInteractiveSetup(options: Options): Promise<SetupAnswers> {
 
   return {
     directory: answers.directory,
-    ownerName: answers.ownerName,
-    ownerEmail: answers.ownerEmail,
-    defaultAgent: options.defaultAgent, // Skip question, use CLI default
+    ownerName, // Auto-detected from gh username or git user.name
+    defaultAgent: options.defaultAgent,
     createRepo: answers.createRepo ?? false,
     repoVisibility: answers.repoVisibility,
     setupLabels: answers.setupLabels ?? false,
@@ -303,7 +284,6 @@ function parseOptions(opts: Record<string, unknown>): Options {
     template: opts.template as string,
     marketplace: opts.marketplace as string | undefined,
     ownerName: opts.ownerName as string | undefined,
-    ownerEmail: opts.ownerEmail as string | undefined,
     origin: opts.origin as string | undefined,
     upstream: opts.upstream !== false,
     createRepo,
@@ -601,26 +581,19 @@ async function updateClaudeSettings(
   }
 }
 
-async function updatePluginManifest(
-  root: string,
-  pluginName: string,
-  ownerName: string,
-  ownerEmail?: string,
-) {
+async function updatePluginManifest(root: string, pluginName: string, ownerName: string) {
   const path = join(root, '.claude-plugin', 'plugin.json');
   if (!existsSync(path)) return;
 
   const raw = await readFile(path, 'utf-8');
   const data = JSON.parse(raw) as Record<string, unknown>;
   data.name = pluginName;
-  const author: Record<string, string> = { name: ownerName };
-  if (ownerEmail) author.email = ownerEmail;
-  data.author = author;
+  data.author = { name: ownerName };
 
   await writeFile(path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
 }
 
-async function updateMarketplace(root: string, marketplace: string, ownerName: string, ownerEmail?: string) {
+async function updateMarketplace(root: string, marketplace: string, ownerName: string) {
   const path = join(root, '.claude-plugin', 'marketplace.json');
   if (!existsSync(path)) return;
 
@@ -628,25 +601,13 @@ async function updateMarketplace(root: string, marketplace: string, ownerName: s
   const data = JSON.parse(raw) as Record<string, unknown>;
 
   data.name = marketplace;
-
-  const owner: Record<string, string> = { name: ownerName };
-  if (ownerEmail) owner.email = ownerEmail;
-  data.owner = owner;
+  data.owner = { name: ownerName };
 
   if (Array.isArray(data.plugins)) {
     data.plugins = data.plugins.map(plugin => {
       if (!plugin || typeof plugin !== 'object') return plugin;
       const updated = { ...plugin } as Record<string, unknown>;
-      if (typeof updated.author === 'object' && updated.author) {
-        updated.author = { ...(updated.author as Record<string, unknown>), name: ownerName };
-        if (ownerEmail) {
-          (updated.author as Record<string, unknown>).email = ownerEmail;
-        }
-      } else {
-        const author: Record<string, string> = { name: ownerName };
-        if (ownerEmail) author.email = ownerEmail;
-        updated.author = author;
-      }
+      updated.author = { name: ownerName };
       return updated;
     });
   }
