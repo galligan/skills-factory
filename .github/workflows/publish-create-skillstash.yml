@@ -3,16 +3,29 @@ name: Publish create-skillstash
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - 'create-skillstash-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g., create-skillstash-v0.3.0)'
+        required: true
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'create-skillstash-v')
+    if: |
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'create-skillstash-v')) ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'create-skillstash-v')) ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write # For npm provenance
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: oven-sh/setup-bun@v2
 
