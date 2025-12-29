@@ -714,6 +714,7 @@ function cleanupAutomation(root: string) {
     'packages',
     '.githooks',
     '.github/actions',
+    '.github/workflows', // Remove template workflows, regenerated later
   ];
 
   const filesToRemove = [
