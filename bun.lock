@@ -19,11 +19,12 @@
     },
     "packages/create-skillstash": {
       "name": "create-skillstash",
-      "version": "0.3.0",
+      "version": "0.3.2",
       "bin": {
         "create-skillstash": "src/cli.ts",
       },
       "dependencies": {
+        "chalk": "^5.4.1",
         "commander": "^14.0.2",
         "inquirer": "^13.1.0",
         "ora": "^9.0.0",

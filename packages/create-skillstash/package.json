@@ -1,6 +1,6 @@
 {
   "name": "create-skillstash",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Scaffold a Skillstash repo from the template",
   "type": "module",
   "bin": {
@@ -33,6 +33,7 @@
     "bun": ">=1.1.0"
   },
   "dependencies": {
+    "chalk": "^5.4.1",
     "commander": "^14.0.2",
     "inquirer": "^13.1.0",
     "ora": "^9.0.0"

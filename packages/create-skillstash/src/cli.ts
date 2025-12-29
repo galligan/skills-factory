@@ -3,9 +3,45 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import chalk from 'chalk';
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import ora from 'ora';
+
+// ============================================================================
+// Output Formatting
+// ============================================================================
+
+const fmt = {
+  bold: (text: string) => chalk.bold(text),
+  dim: (text: string) => chalk.dim(text),
+  cmd: (text: string) => chalk.yellow(text),
+};
+
+function drawBox(title: string, lines: string[]): string {
+  const maxContentWidth = Math.max(title.length, ...lines.map((l) => l.length));
+  const innerWidth = maxContentWidth + 2; // 1 padding on each side
+
+  const output: string[] = [];
+
+  // Top border
+  output.push(`╭${'─'.repeat(innerWidth)}╮`);
+
+  // Title line (bold)
+  const titlePadding = innerWidth - title.length - 1;
+  output.push(`│ ${fmt.bold(title)}${' '.repeat(titlePadding)}│`);
+
+  // Content lines
+  for (const line of lines) {
+    const linePadding = innerWidth - line.length - 1;
+    output.push(`│ ${fmt.cmd(line)}${' '.repeat(linePadding)}│`);
+  }
+
+  // Bottom border
+  output.push(`╰${'─'.repeat(innerWidth)}╯`);
+
+  return output.join('\n');
+}
 
 // ============================================================================
 // Types
@@ -67,7 +103,7 @@ program.parse();
 async function main(directory: string | undefined, opts: Record<string, unknown>) {
   const options = parseOptions(opts);
 
-  console.log('\n🎯 Skillstash Repository Setup\n');
+  console.log(`\n${drawBox('Skillstash Repository Setup', [])}\n`);
 
   // Interactive mode if no directory provided or explicitly enabled
   if (!directory && options.interactive) {
@@ -181,6 +217,16 @@ async function main(directory: string | undefined, opts: Record<string, unknown>
     remotesSpinner.succeed('Git remotes configured');
   } catch {
     remotesSpinner.fail('Failed to configure git remotes');
+  }
+
+  // Create initial commit with all setup changes
+  const commitSpinner = ora('Creating initial commit...').start();
+  try {
+    runQuiet('git', ['-C', targetPath, 'add', '-A']);
+    runQuiet('git', ['-C', targetPath, 'commit', '-m', 'Initial commit from create-skillstash']);
+    commitSpinner.succeed('Initial commit created');
+  } catch {
+    commitSpinner.warn('Could not create initial commit (no changes or git error)');
   }
 
   // Print success message
@@ -305,20 +351,18 @@ function printSuccess(
   _defaultAgent: string,
   _upstreamRepo: string,
 ) {
-  console.log('\n✨ Skillstash repository ready!\n');
-  console.log('Next steps:');
-  console.log(`  cd ${directory}`);
-  console.log('  bun install');
+  console.log(`\n${drawBox('Skillstash repository ready!', [])}`);
+  console.log(`\n${fmt.bold('→ Next Steps')}`);
+  console.log(`  ${fmt.cmd(`cd ${directory} && bun install`)}`);
 
   if (originUrl) {
-    console.log('  git push -u origin main');
+    console.log(`  ${fmt.cmd('git push -u origin main')}`);
   } else {
-    console.log('  git remote add origin https://github.com/<owner>/<repo>.git');
-    console.log('  git push -u origin main');
+    console.log(`  ${fmt.cmd('git remote add origin https://github.com/<owner>/<repo>.git')}`);
+    console.log(`  ${fmt.cmd('git push -u origin main')}`);
   }
 
-  console.log('\nSet up Claude authentication:');
-  console.log('  claude setup-token');
+  console.log(`  ${fmt.cmd('claude setup-token')}  ${fmt.dim('# Set up Claude GitHub Actions for automation')}`);
   console.log('');
 }
 
@@ -809,7 +853,7 @@ pre-commit:
   parallel: true
   commands:
     lockfile:
-      run: bun install --frozen-lockfile > /dev/null 2>&1 || (echo "❌ bun.lock is out of sync. Run 'bun install' and commit the updated lockfile." && exit 1)
+      run: bun install --frozen-lockfile > /dev/null 2>&1 || (echo "[error] Lockfile mismatch - bun.lock does not match package.json. Run 'bun install' to update the lockfile, then stage and commit it." && exit 1)
       skip:
         - merge
         - rebase
