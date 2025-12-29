@@ -33,9 +33,7 @@ The CLI walks you through setup interactively and configures everything locally.
 
 ### Option 2: Use as GitHub Template
 
-1. Click **"Use this template"** → **"Create a new repository"** on GitHub
-2. Wait for the initialization workflow to complete (~30 seconds)
-3. Clone your new repo and run `bun install`
+Click **"Use this template"** → **"Create a new repository"** on GitHub. The repo auto-configures itself on first push.
 
 Both options set up the same thing - choose whichever fits your workflow.
 
