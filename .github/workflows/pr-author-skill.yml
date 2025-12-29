@@ -8,11 +8,11 @@ on:
 
 jobs:
   author-skill:
-    # Only run on skill/* branches (skill/add-*, skill/update-*, skill/remove-*)
+    # Only run on skill/add-* branches (new skill creation)
     if: |
       github.event.pull_request &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.head_ref, 'skill/')
+      startsWith(github.head_ref, 'skill/add-')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
